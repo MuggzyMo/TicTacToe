@@ -127,7 +127,7 @@ int main(int argc, char *argv[]) {
       acceptPlayer2(game, sockfd);
       start_subserver(game);
    }
-}
+}  
 
 /* Function prepares  save struct to be passed to
    saveThread and create that said thread.
