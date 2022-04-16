@@ -65,7 +65,7 @@ void makeMove(int playersockfd, char pSymb, char *board);
 char *createBoard(int x, int y);
 void printBoard(char *board);
 int isTaken(char *board, int msgx, int msgy);
-void set(char *board, int msgx, int msgy, char playerSymbol);
+void markBoard(char *board, int msgx, int msgy, char playerSymbol);
 int checkWin(char *board, char playerSymbol);
 int checkDraw(char *board);
 void sendResult(int winner, int loser, int gameStat, char *board);
@@ -82,7 +82,7 @@ void printScoreboard(GameContext *game);
 void assignXGameContext(GameContext *game, int loc, int playersockfd);
 void assignOGameContext(GameContext *game, int loc, int playersockfd);
 int serverFull(int playersockfd);
-int authenticate(PlayerRecord *scoreboard, int playersockfd, int loc);
+int authenticatePlayer(PlayerRecord *scoreboard, int playersockfd, int loc);
 void setPassword(PlayerRecord *scoreboard, int playersockfd, int loc);
 void acceptPlayer1(GameContext *game, int sockfd);
 void acceptPlayer2(GameContext *game, int sockfd);
@@ -91,6 +91,7 @@ PlayerRecord *readRecordAt(int fd, int index);
 void *saveThread(void *args);
 int writeRecordAt(int fd, PlayerRecord *record, int index);
 void startSave(int fd, PlayerRecord *record, Lock *mutex);
+void recvAndSendChat(int sender, int receiver);
 
 /* Main function which accepts player connections
    and assigns them a status as either player 1 or
@@ -127,7 +128,7 @@ int main(int argc, char *argv[]) {
       acceptPlayer2(game, sockfd);
       start_subserver(game);
    }
-}  
+}
 
 /* Function prepares  save struct to be passed to
    saveThread and create that said thread.
@@ -400,7 +401,7 @@ int acceptName(PlayerRecord *scoreboard, int playersockfd, Lock *mutex) {
       // If name is already on scoreboard
       if(comp == 0) {
          // If password was incorrect
-         if(authenticate(scoreboard,playersockfd,loc) == -2) { return -2; }
+         if(authenticatePlayer(scoreboard,playersockfd,loc) == -2) { return -2; }
          printf("Player already on scoreboard\n\n");
          result = 0;
          send(playersockfd, &result, sizeof(int), 0);
@@ -430,7 +431,7 @@ int acceptName(PlayerRecord *scoreboard, int playersockfd, Lock *mutex) {
 /* Function authenticates prior player by determining whether
    the password they entered is correct.
 */
-int authenticate(PlayerRecord *scoreboard, int playersockfd, int loc) {
+int authenticatePlayer(PlayerRecord *scoreboard, int playersockfd, int loc) {
    int size, result;
    int incorrect = -2; // Sent to player if password incorrect
    char password[21];
@@ -478,9 +479,12 @@ int serverFull(int playersockfd) {
 void playGame(GameContext *game) {
    char *board = createBoard(3,3);
    int gameStat = -1;  // Game not over while -1  
-   char option = 'M'; 
+   char chatOption = 'M'; 
    // Game ends once a win, loss, or draw occurs which means
    while(1) {
+       recv(game->playerXSockfd, &chatOption, sizeof(char), 0);
+       send(game->playerOSockfd, &chatOption, sizeof(char), 0); 
+       if(chatOption == CHAT) { recvAndSendChat(game->playerXSockfd, game->playerOSockfd); }
        makeMove(game->playerXSockfd, PLAYER1, board);
        gameStat = checkWin(board, PLAYER1);     
        // If player 1 has won the game
@@ -499,7 +503,10 @@ void playGame(GameContext *game) {
           break;
        }
        // No win or draw yet, update both players
-       sendUpdate(game->playerXSockfd, game->playerOSockfd, gameStat, board); 
+       sendUpdate(game->playerXSockfd, game->playerOSockfd, gameStat, board);
+       recv(game->playerOSockfd, &chatOption, sizeof(char), 0);
+       send(game->playerXSockfd, &chatOption, sizeof(char), 0);
+       if(chatOption == CHAT) { recvAndSendChat(game->playerOSockfd, game->playerXSockfd); } 
        makeMove(game->playerOSockfd, PLAYER2, board);
        gameStat = checkWin(board, PLAYER2);
        // If player 2 has won the game
@@ -512,6 +519,21 @@ void playGame(GameContext *game) {
        // No win or draw yet, update both players
        sendUpdate(game->playerXSockfd, game->playerOSockfd, gameStat, board);
    }
+}
+
+void recvAndSendChat(int sender, int receiver) {
+   printf("Receiving player chat\n");
+   int messageSize = 0;
+   char *message = (char *)malloc(sizeof(char) * 200);
+   recv(sender, &messageSize, sizeof(int), 0);
+   recv(sender, message, messageSize, 0);
+
+   printf("Sending player chat\n\n");
+   send(receiver, &messageSize, sizeof(int), 0);
+   send(receiver, message, messageSize, 0);
+
+   free(message);
+   
 }
 
 /* Function updates the game context for a given player
@@ -568,7 +590,7 @@ void makeMove(int playersockfd, char pSymb, char *board) {
       // Location on the board is not taken, can be marked
       else { break; }
    }
-   set(board, x, y, pSymb);
+   markBoard(board, x, y, pSymb);
    send(playersockfd, &taken, sizeof(int), 0);
 }
 
@@ -620,7 +642,7 @@ int isTaken(char *board, int msgx, int msgy) {
 /* Function marks location on the board with 
    specified player's symbol.
 */ 
-void set(char *board, int msgx, int msgy, char playerSymbol) {
+void markBoard(char *board, int msgx, int msgy, char playerSymbol) {
    board[msgx*3 + msgy] = playerSymbol;
 }
 

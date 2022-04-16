@@ -34,10 +34,12 @@ int recvUpdate(int playersockfd);
 void checkGameStat(int playersockfd, int gameStat);
 void player1(int playersockfd);
 void player2(int playersockfd);
-char get(char *board, int i, int j);
+char getSymbolAtBoardLoc(char *board, int i, int j);
 int sendNamePass(int playersockfd);
 void recvNames(int playersockfd);
 void recvGameContext(int playersockfd);
+void sendChat(int playersockfd);
+void recvChat(int playersockfd);
 
 /* Main function which establishes connection to the
    server, starts the game, and closes the connection.
@@ -103,24 +105,24 @@ void recvGameContext(int playersockfd) {
 int sendNamePass(int playersockfd) {
    char name[21];
    char password[21];
-   int nsize, psize, result;
+   int nameSize, passSize, result;
    
    printf("Enter name:\n");
    scanf("%s", name);
    printf("Enter password:\n");
    scanf("%s", password);
    
-   psize = strlen(password)+1;
-   nsize = strlen(name)+1;
-   send(playersockfd, &nsize, sizeof(int), 0);
-   send(playersockfd, name, nsize, 0);
-   send(playersockfd, &psize, sizeof(int), 0);
-   send(playersockfd, password, psize, 0);
+   passSize = strlen(password)+1;
+   nameSize = strlen(name)+1;
+   send(playersockfd, &nameSize, sizeof(int), 0);
+   send(playersockfd, name, nameSize, 0);
+   send(playersockfd, &passSize, sizeof(int), 0);
+   send(playersockfd, password, passSize, 0);
    recv(playersockfd, &result, sizeof(int), 0);
    
    // Player was accepted
    if(result == 0) {
-      printf("Player registered\n");
+      printf("Player registered\\Signed in\n");
       return 1;
    }
    // Incorrect password entered
@@ -176,12 +178,17 @@ void recvNames(int playersockfd) {
 */
 void player1(int playersockfd) {
    int gameStat = -1; // Game not over while -1
-   char option = 'M';
+   char sendChatOption = 'M';
    
    // Player 1 makes move until game declared over
    // and break statement is reached
    while(1) {
       printf("Your turn\n");
+      printf("Enter 'M' to make a move or 'C' to send opponent chat first\n");
+      scanf("%s", &sendChatOption);
+      send(playersockfd, &sendChatOption, sizeof(char), 0);
+      if(sendChatOption == CHAT) { sendChat(playersockfd); }
+      printf("Make move:\n");
       makeMove(playersockfd);
       gameStat = recvUpdate(playersockfd);
       checkGameStat(playersockfd, gameStat);     
@@ -189,6 +196,8 @@ void player1(int playersockfd) {
       if(gameStat != -1) { break; }
       
       printf("Opponent's turn\n");
+      recv(playersockfd, &sendChatOption, sizeof(char), 0);
+      if(sendChatOption == CHAT) { recvChat(playersockfd); }
       gameStat = recvUpdate(playersockfd);
       checkGameStat(playersockfd, gameStat);    
       // If game is over, after player 2's move
@@ -203,24 +212,51 @@ void player1(int playersockfd) {
 */
 void player2(int playersockfd) {
    int gameStat = -1; // Game not over while -1
-   char option = 'M';
+   char sendChatOption = 'M';
    
    // Player 2 makes move until game declared over
    // and brek statement is reached
    while(1) {
       printf("Opponent's turn\n");
+      recv(playersockfd, &sendChatOption, sizeof(char), 0);
+      if(sendChatOption == CHAT) { recvChat(playersockfd); }
       gameStat = recvUpdate(playersockfd);
       checkGameStat(playersockfd, gameStat);
       // If game is over after player 1's move
       if(gameStat != -1) { break; }
 
-      printf("Your turn\n");      
+      printf("Your turn\n");
+      printf("Enter 'M' to make a move or 'C' to send opponent chat first\n");
+      scanf("%s", &sendChatOption);
+      send(playersockfd, &sendChatOption, sizeof(char), 0);
+      if(sendChatOption == CHAT) { sendChat(playersockfd); }
+      printf("Make move:\n");      
       makeMove(playersockfd);
       gameStat = recvUpdate(playersockfd);
       checkGameStat(playersockfd, gameStat);
       // If game is over after player 2's move
       if(gameStat != -1) { break; }
    }
+}
+
+void sendChat(int playersockfd) {
+    char *message = (char *)malloc(sizeof(char) * 200);
+    printf("Enter 200 character or less message for opponent:\n");
+    scanf(" %[^\n]s", message);
+    int messageSize = strlen(message);
+    send(playersockfd, &messageSize, sizeof(int), 0);
+    send(playersockfd, message, messageSize, 0);
+    free(message);
+}
+
+void recvChat(int playersockfd) {
+    char *message = (char *)malloc(sizeof(char) * 200);
+    int messageSize = 0;
+    recv(playersockfd, &messageSize, sizeof(int), 0);
+    recv(playersockfd, message, messageSize, 0);
+    printf("Message received from opponent:\n");
+    printf("%s\n", message);
+    free(message);
 }
 
 /* Function receives and returns updated game status after
@@ -259,7 +295,7 @@ void checkGameStat(int playersockfd, int gameStat) {
 */
 void makeMove(int playersockfd) {
    int x,y,taken;
-   
+      
    // Continue until untaken location is sent
    // and break statement is reached
    while(1) {
@@ -300,7 +336,7 @@ void recvBoard(int playersockfd) {
    // Prints the board
    for(int i = 0; i < 3; i++) {
       for(int j = 0; j < 3; j++) {
-         val = get(board, i, j);
+         val = getSymbolAtBoardLoc(board, i, j);
          printf("%c ", val);       
       }
       printf("\n");
@@ -311,6 +347,6 @@ void recvBoard(int playersockfd) {
 /* Function gets the symbol at given 
    location on the board.
 */
-char get(char *board, int i, int j) {
+char getSymbolAtBoardLoc(char *board, int i, int j) {
    return board[i*3 + j];
 }
