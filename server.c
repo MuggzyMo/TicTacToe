@@ -92,6 +92,10 @@ void *saveThread(void *args);
 int writeRecordAt(int fd, PlayerRecord *record, int index);
 void startSave(int fd, PlayerRecord *record, Lock *mutex);
 void recvAndSendChat(int sender, int receiver);
+void player1Wins(GameContext *game, char *board, int gameStat);
+void player2Wins(GameContext *game, char *board, int gameStat);
+void draw(GameContext *game, char *board, int gameStat);
+void checkForChat(int sender, int receiver);
 
 /* Main function which accepts player connections
    and assigns them a status as either player 1 or
@@ -482,43 +486,60 @@ void playGame(GameContext *game) {
    char chatOption = 'M'; 
    // Game ends once a win, loss, or draw occurs which means
    while(1) {
-       recv(game->playerXSockfd, &chatOption, sizeof(char), 0);
-       send(game->playerOSockfd, &chatOption, sizeof(char), 0); 
-       if(chatOption == CHAT) { recvAndSendChat(game->playerXSockfd, game->playerOSockfd); }
+       checkForChat(game->playerXSockfd, game->playerOSockfd);
        makeMove(game->playerXSockfd, PLAYER1, board);
        gameStat = checkWin(board, PLAYER1);     
        // If player 1 has won the game
        if(gameStat == 1) {
-          updateGameContext(game, 1);
-          sendResult(game->playerXSockfd, game->playerOSockfd, gameStat, board);
+          player1Wins(game, board, gameStat);
           free(board);
           break;
        }
        gameStat = checkDraw(board);      
        // If game has ended in a draw
        if(gameStat == 2) {      
-          updateGameContext(game, 3);
-          sendResult(game->playerXSockfd, game->playerOSockfd, gameStat, board);
+          draw(game, board, gameStat);
           free(board);
           break;
        }
        // No win or draw yet, update both players
        sendUpdate(game->playerXSockfd, game->playerOSockfd, gameStat, board);
-       recv(game->playerOSockfd, &chatOption, sizeof(char), 0);
-       send(game->playerXSockfd, &chatOption, sizeof(char), 0);
-       if(chatOption == CHAT) { recvAndSendChat(game->playerOSockfd, game->playerXSockfd); } 
+       checkForChat(game->playerOSockfd, game->playerXSockfd); 
        makeMove(game->playerOSockfd, PLAYER2, board);
        gameStat = checkWin(board, PLAYER2);
        // If player 2 has won the game
        if(gameStat == 1) {
-          updateGameContext(game, 2);
-          sendResult(game->playerOSockfd, game->playerXSockfd, gameStat, board);
+          player2Wins(game, board, gameStat);
           free(board);
           break;
        }
        // No win or draw yet, update both players
        sendUpdate(game->playerXSockfd, game->playerOSockfd, gameStat, board);
    }
+}
+
+void checkForChat(int sender, int receiver) {
+   char chatOption = 'M';
+
+   recv(sender, &chatOption, sizeof(char), 0);
+   send(receiver, &chatOption, sizeof(char), 0);
+
+   if(chatOption == CHAT) { recvAndSendChat(sender, receiver); }
+} 
+
+void player1Wins(GameContext *game, char *board, int gameStat) {
+   updateGameContext(game, 1);
+   sendResult(game->playerXSockfd, game->playerOSockfd, gameStat, board);
+}
+
+void player2Wins(GameContext *game, char *board, int gameStat) {
+   updateGameContext(game, 2);
+   sendResult(game->playerOSockfd, game->playerXSockfd, gameStat, board);
+}
+
+void draw(GameContext *game, char *board, int gameStat) {
+   updateGameContext(game, 3);
+   sendResult(game->playerXSockfd, game->playerOSockfd, gameStat, board);
 }
 
 void recvAndSendChat(int sender, int receiver) {
